@@ -1,0 +1,3 @@
+ignored:
+  # Pinning apk package versions breaks every time the Alpine base image updates.
+  - DL3018

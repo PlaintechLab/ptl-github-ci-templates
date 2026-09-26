@@ -1,0 +1,121 @@
+# Next.js frontend: reference configuration.
+#
+# Documents the conventions and defaults of .github/workflows/build-nextjs.yml
+# and docker/Dockerfile.nextjs. The workflow does not read this file; its
+# inputs are the source of truth. Keep both in sync.
+
+framework:
+  name: nextjs
+  runtime: node             # Bun installs dependencies; `next build` and the server run on Node
+  bun_version: "1"
+  node_versions: ["22", "24"]  # CI matrix; Node 20 is EOL since 2026-04
+  package_manager: bun
+  lockfile: bun.lock        # bun.lockb also accepted; must be committed
+
+commands:
+  dev: bun run dev
+  build: bun run build
+  start: bun run start
+  test: bun run test
+  lint: bun run lint        # `next lint` was removed in Next 16; use eslint/biome/tsc
+  audit: bun audit --audit-level=high
+
+build:
+  output_dir: .next/
+  static_dir: public/
+  required_config:
+    output: standalone      # next.config: the runtime image ships .next/standalone only
+  environment:
+    NODE_ENV: production
+    NEXT_TELEMETRY_DISABLED: "1"
+  build_env_secret: build-env   # dotenv for NEXT_PUBLIC_* (inlined into the client bundle at build time)
+  optimizations:
+    static_export: >-
+      For a pure SPA set output: "export" and serve out/ from a static host
+      instead; this workflow targets the standalone Node server.
+
+docker:
+  dockerfile: docker/Dockerfile.nextjs
+  dockerignore: docker/Dockerfile.nextjs.dockerignore  # overrides the project's .dockerignore
+  stages:
+    base: node:24-alpine + bun binary
+    deps: bun install --frozen-lockfile
+    builder: bun run build (Next.js cache mount at .next/cache)
+    runtime: node:24-alpine  # server.js + .next/static + public
+  port: 3000
+  healthcheck:
+    path: /
+    command: wget -q -O /dev/null http://127.0.0.1:$PORT$HEALTHCHECK_PATH
+    interval: 30s
+    timeout: 5s
+    start_period: 15s
+    retries: 3
+  environment:
+    NODE_ENV: production
+    NEXT_TELEMETRY_DISABLED: "1"
+    HOSTNAME: 0.0.0.0
+    PORT: "3000"
+  security:
+    user: "1001:1001"        # non-root; only .next/cache is writable
+    init: tini
+    env_files_in_image: false  # .env* is dockerignored and stripped from .next/standalone
+  platforms: [linux/amd64, linux/arm64]
+
+github_actions:
+  workflow: .github/workflows/build-nextjs.yml
+  jobs:
+    quality:                 # matrix over node_versions
+      steps: [setup-bun, restore .next/cache, lint, test, build, bundle report, audit (first leg), upload (first leg)]
+      timeout_minutes: 20
+    docker:
+      steps: [build (runner arch), size check, smoke test, trivy, push multi-arch, cosign sign]
+      timeout_minutes: 30
+  caching:
+    bun: ~/.bun/install/cache keyed on the lockfile hash
+    nextjs: .next/cache keyed on node version + lockfile + source hash
+    docker: GitHub Actions cache (type=gha, mode=max), one scope per image
+  required_permissions:
+    contents: read
+    packages: write
+    id-token: write
+    security-events: write
+
+environments:
+  development:
+    NODE_ENV: development
+  staging:
+    NODE_ENV: production
+    NEXT_TELEMETRY_DISABLED: "1"
+  production:
+    NODE_ENV: production
+    NEXT_TELEMETRY_DISABLED: "1"
+
+registry:
+  host: ghcr.io
+  image: ghcr.io/plaintechlab/<product>-<app>
+  auth: GITHUB_TOKEN (default) or registry-username / registry-password secrets
+  tags: ["<branch>", "pr-<number>", "<version>", "<major>.<minor>", "sha-<short sha>", "latest (default branch)"]
+  attestations: [provenance (mode=max), sbom]
+  signing: cosign keyless
+
+artifacts:
+  name: nextjs-build
+  include: [.next/, public/]
+  exclude: [.next/cache/, node_modules/]
+  retention_days: 5
+
+performance_targets:
+  build_time_minutes: 5      # reported, not enforced
+  image_size_mb: 400         # enforced (max-image-size-mb); the fixture is ~210 MB
+  bundle_size: tracked       # client JS total, gzipped total and top 10 chunks in the job summary
+  startup_time_s: 15
+
+security:
+  dependency_audit: bun audit, fails at >= high
+  image_scan: Trivy, fails on unfixed-excluded CRITICAL/HIGH
+  sbom: BuildKit SBOM attestation on the pushed image
+  non_root_user: true
+  package_managers_in_runtime: false   # npm/npx/yarn/corepack removed from node images
+  base_image_patching: apk upgrade in the runtime stage (base images lag behind Alpine security fixes)
+  healthcheck: required
+  actions_pinned_by_sha: true

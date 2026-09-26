@@ -1,0 +1,13 @@
+# Used by BuildKit instead of the project's .dockerignore when building with Dockerfile.nextjs.
+.git
+.github
+node_modules
+.next
+out
+coverage
+.env
+.env.*
+*.log
+.DS_Store
+Dockerfile*
+docker-compose*

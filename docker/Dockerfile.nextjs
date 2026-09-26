@@ -1,0 +1,76 @@
+# syntax=docker/dockerfile:1
+#
+# Next.js frontend, dependencies installed with Bun, built and served by Node.js.
+#
+# Requires `output: "standalone"` in next.config.{js,mjs,ts}: the runtime image
+# ships only .next/standalone (server + traced node_modules), .next/static and public/.
+#
+# Build args:
+#   BUN_VERSION, NODE_VERSION   base image versions
+#   HEALTHCHECK_PATH            path probed by HEALTHCHECK (default /)
+#   PORT                        port the server listens on (default 3000)
+#
+# Build secret:
+#   build-env   shell-compatible dotenv, exported for `next build` only
+#               (NEXT_PUBLIC_* values are inlined into the bundle at build time).
+
+ARG BUN_VERSION=1
+ARG NODE_VERSION=24
+
+FROM oven/bun:${BUN_VERSION}-alpine AS bun
+
+# ---- base: Node.js with the Bun binary, so `next build` runs on real Node ----
+FROM node:${NODE_VERSION}-alpine AS base
+RUN apk add --no-cache libc6-compat libstdc++
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# ---- deps ---------------------------------------------------------------------
+FROM base AS deps
+COPY package.json bun.lock* bun.lockb* ./
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
+
+# ---- builder --------------------------------------------------------------------
+FROM base AS builder
+ENV NODE_ENV=production
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN --mount=type=cache,target=/app/.next/cache \
+    --mount=type=secret,id=build-env,required=false \
+    set -e; \
+    if [ -f /run/secrets/build-env ]; then set -a; . /run/secrets/build-env; set +a; fi; \
+    bun run build; \
+    rm -f .next/standalone/.env*; \
+    test -f .next/standalone/server.js || { echo 'No .next/standalone/server.js: set output: "standalone" in next.config'; exit 1; }; \
+    mkdir -p public
+
+# ---- runtime ----------------------------------------------------------------------
+FROM node:${NODE_VERSION}-alpine AS runtime
+ARG HEALTHCHECK_PATH=/
+ARG PORT=3000
+# npm/yarn/corepack are removed: the runtime never uses them and they carry their own CVEs.
+RUN apk upgrade --no-cache \
+ && apk add --no-cache tini \
+ && addgroup -S -g 1001 app \
+ && adduser -S -D -H -u 1001 -G app app \
+ && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    HOSTNAME=0.0.0.0 \
+    PORT=${PORT} \
+    HEALTHCHECK_PATH=${HEALTHCHECK_PATH}
+# Code stays root-owned (read-only for the app user); only the ISR/image cache is writable.
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+RUN mkdir -p .next/cache && chown 1001:1001 .next/cache
+USER 1001:1001
+EXPOSE ${PORT}
+# hadolint ignore=DL3025
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}${HEALTHCHECK_PATH}" || exit 1
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["node", "server.js"]

@@ -1,0 +1,107 @@
+# Go backend: reference configuration.
+#
+# Documents the conventions and defaults of .github/workflows/build-go.yml
+# and docker/Dockerfile.go. The workflow does not read this file; its inputs
+# are the source of truth. Keep both in sync.
+
+framework:
+  name: go
+  runtime: go
+  go_versions: ["go.mod", "stable"]  # CI matrix; "go.mod" = the version the module declares
+  package_manager: go modules
+
+commands:
+  build: go build -trimpath -o ./bin/app ./cmd/main.go
+  test: go test -race -coverprofile=coverage.out ./...
+  lint: golangci-lint run
+  format: gofmt -s -w .      # CI fails if `gofmt -s -l .` lists anything
+  vet: go vet ./...
+  security: [gosec ./..., govulncheck ./...]
+
+build:
+  output: bin/app            # binary-name input
+  main_package: ./cmd/main.go
+  cgo: false                 # static binary
+  ldflags: -s -w -X main.version=<version>
+
+docker:
+  dockerfile: docker/Dockerfile.go
+  dockerignore: docker/Dockerfile.go.dockerignore
+  stages:
+    builder: golang:<go.mod major.minor>-alpine on $BUILDPLATFORM, cross-compiles per target arch
+    runtime-alpine: alpine:3 + ca-certificates + tzdata   # default target
+    runtime-distroless: gcr.io/distroless/static-debian13:nonroot
+  port: 8000
+  healthcheck:
+    path: /health
+    command: /usr/local/bin/healthcheck   # static Go probe built alongside the app; works without a shell
+    interval: 30s
+    timeout: 5s
+    start_period: 5s
+    retries: 3
+  environment:
+    GO_ENV: production
+    PORT: "8000"
+  security:
+    user: "1001:1001"
+  platforms: [linux/amd64, linux/arm64]
+
+github_actions:
+  workflow: .github/workflows/build-go.yml
+  jobs:
+    quality:                 # matrix over go_versions
+      steps: [gofmt, go vet, golangci-lint (first leg), test, build, SBOM (first leg), upload (first leg)]
+      timeout_minutes: 20
+    security:
+      steps: [gosec, govulncheck]
+      timeout_minutes: 15
+    docker:
+      steps: [build (runner arch), size check, smoke test, trivy, push multi-arch, cosign sign]
+      timeout_minutes: 30
+  caching:
+    go: module + build cache via actions/setup-go, keyed on go.sum
+    docker: GitHub Actions cache (type=gha, mode=max) + BuildKit cache mounts for /go/pkg/mod and the build cache
+  required_permissions:
+    contents: read
+    packages: write
+    id-token: write
+    security-events: write
+
+environments:
+  development:
+    GO_ENV: development
+    PORT: "8000"
+  staging:
+    GO_ENV: production
+  production:
+    GO_ENV: production
+
+registry:
+  host: ghcr.io
+  image: ghcr.io/plaintechlab/<product>-<app>
+  auth: GITHUB_TOKEN (default) or registry-username / registry-password secrets
+  tags: ["<branch>", "pr-<number>", "<version>", "<major>.<minor>", "sha-<short sha>", "latest (default branch)"]
+  attestations: [provenance (mode=max), sbom]
+  signing: cosign keyless
+
+artifacts:
+  name: go-binary
+  include: [bin/app, bin/sbom.spdx.json]
+  retention_days: 5
+
+performance_targets:
+  build_time_minutes: 3      # reported, not enforced
+  image_size_mb:
+    alpine: 50               # enforced (max-image-size-mb default); the fixture is ~20 MB
+    distroless: 20           # set max-image-size-mb: 20; the fixture is ~13 MB
+  binary_size_mb: 30         # warning only
+
+security:
+  static_analysis: gosec (pinned version), fails on findings
+  vulnerabilities: govulncheck, fails on reachable vulnerabilities
+  image_scan: Trivy, fails on unfixed-excluded CRITICAL/HIGH
+  sbom: [SPDX for the binary artifact, BuildKit SBOM attestation on the image]
+  non_root_user: true
+  base_image_patching: apk upgrade in the runtime stage (base images lag behind Alpine security fixes)
+  healthcheck: required
+  actions_pinned_by_sha: true

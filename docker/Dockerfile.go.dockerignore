@@ -1,0 +1,12 @@
+# Used by BuildKit instead of the project's .dockerignore when building with Dockerfile.go.
+.git
+.github
+bin
+dist
+coverage*
+*.out
+.env
+.env.*
+.DS_Store
+Dockerfile*
+docker-compose*

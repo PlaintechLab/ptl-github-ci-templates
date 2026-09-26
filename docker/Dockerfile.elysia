@@ -1,0 +1,97 @@
+# syntax=docker/dockerfile:1
+#
+# ElysiaJS backend, built with Bun.
+#
+# Targets:
+#   runtime-bun   (default) Bun runtime. Elysia is Bun-first; use this unless you need Node.
+#   runtime-node  Node.js runtime. The app must use @elysiajs/node and build with --target=node.
+#
+# Build args:
+#   BUN_VERSION, NODE_VERSION   base image versions
+#   APP_ENTRY                   built entry point, relative to the project root (default dist/index.js)
+#   HEALTHCHECK_PATH            path probed by HEALTHCHECK (default /health)
+#   PORT                        port the app listens on (default 3000)
+
+ARG BUN_VERSION=1
+ARG NODE_VERSION=24
+
+# ---- deps: full install, cached between builds -----------------------------
+FROM oven/bun:${BUN_VERSION}-alpine AS deps
+WORKDIR /app
+COPY package.json bun.lock* bun.lockb* ./
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
+
+# ---- prod-deps: runtime dependencies only ----------------------------------
+FROM oven/bun:${BUN_VERSION}-alpine AS prod-deps
+WORKDIR /app
+COPY package.json bun.lock* bun.lockb* ./
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile --production --omit=peer
+
+# ---- builder ----------------------------------------------------------------
+FROM deps AS builder
+ARG APP_ENTRY=dist/index.js
+ENV NODE_ENV=production
+COPY . .
+RUN --mount=type=secret,id=build-env,required=false \
+    set -e; \
+    if [ -f /run/secrets/build-env ]; then set -a; . /run/secrets/build-env; set +a; fi; \
+    bun run build; \
+    test -f "$APP_ENTRY" || { echo "Build did not produce $APP_ENTRY (set the APP_ENTRY build arg)"; exit 1; }
+
+# ---- runtime-node -------------------------------------------------------------
+FROM node:${NODE_VERSION}-alpine AS runtime-node
+ARG APP_ENTRY=dist/index.js
+ARG HEALTHCHECK_PATH=/health
+ARG PORT=3000
+# npm/yarn/corepack are removed: the runtime never uses them and they carry their own CVEs.
+# tini: forwards signals and reaps zombies so the app is not PID 1.
+RUN apk upgrade --no-cache \
+ && apk add --no-cache tini \
+ && addgroup -S -g 1001 app \
+ && adduser -S -D -H -u 1001 -G app app \
+ && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+WORKDIR /app
+ENV NODE_ENV=production \
+    BUN_ENV=production \
+    PORT=${PORT} \
+    APP_ENTRY=${APP_ENTRY} \
+    HEALTHCHECK_PATH=${HEALTHCHECK_PATH}
+# Files stay root-owned: the app user can read but not modify its own code.
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/dist ./dist
+USER 1001:1001
+EXPOSE ${PORT}
+# hadolint ignore=DL3025
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}${HEALTHCHECK_PATH}" || exit 1
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["sh", "-c", "exec node \"$APP_ENTRY\""]
+
+# ---- runtime-bun (default: last stage) ---------------------------------------
+FROM oven/bun:${BUN_VERSION}-alpine AS runtime-bun
+ARG APP_ENTRY=dist/index.js
+ARG HEALTHCHECK_PATH=/health
+ARG PORT=3000
+RUN apk upgrade --no-cache \
+ && apk add --no-cache tini \
+ && addgroup -S -g 1001 app \
+ && adduser -S -D -H -u 1001 -G app app
+WORKDIR /app
+ENV NODE_ENV=production \
+    BUN_ENV=production \
+    PORT=${PORT} \
+    APP_ENTRY=${APP_ENTRY} \
+    HEALTHCHECK_PATH=${HEALTHCHECK_PATH}
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/dist ./dist
+USER 1001:1001
+EXPOSE ${PORT}
+# hadolint ignore=DL3025
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}${HEALTHCHECK_PATH}" || exit 1
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["sh", "-c", "exec bun \"$APP_ENTRY\""]

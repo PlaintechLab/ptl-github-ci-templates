@@ -1,0 +1,32 @@
+name: Release
+
+# Pushing a tag vX.Y.Z moves the major tag vX to it, so projects pinned to
+# @vX pick up the release. Breaking changes need a new major version.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions: {}
+
+jobs:
+  major-tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Move major tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Skipping pre-release tag $TAG"
+            exit 0
+          fi
+          major="${TAG%%.*}"
+          git tag -f "$major" "$TAG"
+          git push -f origin "refs/tags/$major"
+          echo "Moved $major to $TAG ($(git rev-parse --short "$TAG"))" >> "$GITHUB_STEP_SUMMARY"

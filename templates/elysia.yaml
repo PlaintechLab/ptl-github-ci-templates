@@ -1,0 +1,117 @@
+# ElysiaJS backend: reference configuration.
+#
+# Documents the conventions and defaults of .github/workflows/build-elysia.yml
+# and docker/Dockerfile.elysia. The workflow does not read this file; its
+# inputs are the source of truth. Keep both in sync.
+
+framework:
+  name: elysia
+  runtime: bun              # "node" is supported via the runtime-node target (needs @elysiajs/node)
+  bun_version: "1"
+  node_versions: ["22", "24"]  # CI matrix; Node 20 is EOL since 2026-04
+  package_manager: bun
+  lockfile: bun.lock        # bun.lockb also accepted; must be committed
+
+commands:
+  dev: bun run dev
+  build: bun run build      # e.g. bun build src/index.ts --target bun --outdir dist
+  test: bun run test
+  lint: bun run lint
+  audit: bun audit --audit-level=high
+
+build:
+  output_dir: dist/
+  entry_point: dist/index.js
+  environment:
+    NODE_ENV: production
+  build_env_secret: build-env   # shell-compatible dotenv, exported during the build only
+
+docker:
+  dockerfile: docker/Dockerfile.elysia
+  dockerignore: docker/Dockerfile.elysia.dockerignore  # overrides the project's .dockerignore
+  stages:
+    deps: oven/bun:1-alpine          # full install, BuildKit cache mount
+    prod-deps: oven/bun:1-alpine     # --production --omit=peer install for the runtime
+    builder: deps + source           # bun run build
+    runtime-bun: oven/bun:1-alpine   # default target
+    runtime-node: node:24-alpine
+  port: 3000
+  healthcheck:
+    path: /health
+    command: wget -q -O /dev/null http://127.0.0.1:$PORT$HEALTHCHECK_PATH
+    interval: 30s
+    timeout: 5s
+    start_period: 10s
+    retries: 3
+  environment:
+    NODE_ENV: production
+    BUN_ENV: production
+    PORT: "3000"
+  security:
+    user: "1001:1001"        # non-root; app code is root-owned and read-only
+    init: tini               # signal forwarding and zombie reaping
+  platforms: [linux/amd64, linux/arm64]
+
+github_actions:
+  workflow: .github/workflows/build-elysia.yml
+  jobs:
+    quality:                 # matrix over node_versions
+      steps: [setup-bun, lint, test, build, audit (first leg), upload dist (first leg)]
+      timeout_minutes: 20
+    docker:
+      steps: [build (runner arch), size check, smoke test, trivy, push multi-arch, cosign sign]
+      timeout_minutes: 30
+  caching:
+    bun: ~/.bun/install/cache keyed on the lockfile hash
+    docker: GitHub Actions cache (type=gha, mode=max), one scope per image
+  required_permissions:
+    contents: read
+    packages: write          # push to ghcr.io
+    id-token: write          # cosign keyless signing (GitHub OIDC)
+    security-events: write   # Trivy SARIF upload
+
+environments:
+  development:
+    NODE_ENV: development
+    PORT: "3000"
+  staging:
+    NODE_ENV: production
+    BUN_ENV: production
+  production:
+    NODE_ENV: production
+    BUN_ENV: production
+
+registry:
+  host: ghcr.io
+  image: ghcr.io/plaintechlab/<product>-<app>   # matches ptl-helm-charts; set via image-name
+  auth: GITHUB_TOKEN (default) or registry-username / registry-password secrets
+  tags:
+    - "<branch>"             # type=ref,event=branch
+    - "pr-<number>"          # built, never pushed
+    - "<version>"            # v1.2.3 tag -> 1.2.3
+    - "<major>.<minor>"
+    - "sha-<short sha>"
+    - latest                 # default branch only
+  attestations: [provenance (mode=max), sbom]
+  signing: cosign keyless
+
+artifacts:
+  name: elysia-dist
+  include: [dist/]
+  exclude: [node_modules/, .env*]
+  retention_days: 5
+
+performance_targets:
+  build_time: null           # not specified; see the job summary
+  image_size_mb: null        # not enforced by default (max-image-size-mb: 0); the fixture is ~90 MB
+  startup_time_s: 10         # healthcheck start_period
+
+security:
+  dependency_audit: bun audit, fails at >= high
+  image_scan: Trivy, fails on unfixed-excluded CRITICAL/HIGH
+  sbom: BuildKit SBOM attestation on the pushed image
+  non_root_user: true
+  package_managers_in_runtime: false   # npm/npx/yarn/corepack removed from node images
+  base_image_patching: apk upgrade in the runtime stage (base images lag behind Alpine security fixes)
+  healthcheck: required (the smoke test fails without one)
+  actions_pinned_by_sha: true

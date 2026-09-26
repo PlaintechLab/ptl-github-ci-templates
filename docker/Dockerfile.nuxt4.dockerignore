@@ -1,0 +1,15 @@
+# Used by BuildKit instead of the project's .dockerignore when building with Dockerfile.nuxt4.
+.git
+.github
+node_modules
+.nuxt
+.output
+.data
+dist
+coverage
+.env
+.env.*
+*.log
+.DS_Store
+Dockerfile*
+docker-compose*

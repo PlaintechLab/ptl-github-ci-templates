@@ -1,0 +1,72 @@
+# syntax=docker/dockerfile:1
+#
+# Nuxt 4 frontend, dependencies installed with Bun, built and served by Node.js.
+#
+# Uses Nitro's default node-server preset: `nuxt build` writes a self-contained
+# .output/ (server + traced node_modules + public assets), and the runtime image
+# ships only that directory.
+#
+# Build args:
+#   BUN_VERSION, NODE_VERSION   base image versions
+#   HEALTHCHECK_PATH            path probed by HEALTHCHECK (default /)
+#   PORT                        port the server listens on (default 3000)
+#
+# Build secret:
+#   build-env   shell-compatible dotenv, exported for `nuxt build` only.
+#               Runtime config belongs in NUXT_* / NUXT_PUBLIC_* env vars at runtime.
+
+ARG BUN_VERSION=1
+ARG NODE_VERSION=24
+
+FROM oven/bun:${BUN_VERSION}-alpine AS bun
+
+# ---- base: Node.js with the Bun binary, so `nuxt build` runs on real Node -----
+FROM node:${NODE_VERSION}-alpine AS base
+RUN apk add --no-cache libc6-compat libstdc++
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+WORKDIR /app
+ENV NUXT_TELEMETRY_DISABLED=1
+
+# ---- deps ---------------------------------------------------------------------
+FROM base AS deps
+COPY package.json bun.lock* bun.lockb* ./
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
+
+# ---- builder --------------------------------------------------------------------
+FROM base AS builder
+ENV NODE_ENV=production
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN --mount=type=secret,id=build-env,required=false \
+    set -e; \
+    if [ -f /run/secrets/build-env ]; then set -a; . /run/secrets/build-env; set +a; fi; \
+    bun run build; \
+    rm -f .output/.env* .output/server/.env*; \
+    test -f .output/server/index.mjs || { echo 'No .output/server/index.mjs: use the node-server Nitro preset'; exit 1; }
+
+# ---- runtime ----------------------------------------------------------------------
+FROM node:${NODE_VERSION}-alpine AS runtime
+ARG HEALTHCHECK_PATH=/
+ARG PORT=3000
+# npm/yarn/corepack are removed: the runtime never uses them and they carry their own CVEs.
+RUN apk upgrade --no-cache \
+ && apk add --no-cache tini \
+ && addgroup -S -g 1001 app \
+ && adduser -S -D -H -u 1001 -G app app \
+ && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+WORKDIR /app
+ENV NODE_ENV=production \
+    NUXT_TELEMETRY_DISABLED=1 \
+    HOST=0.0.0.0 \
+    PORT=${PORT} \
+    HEALTHCHECK_PATH=${HEALTHCHECK_PATH}
+# Code stays root-owned: the app user can read but not modify it.
+COPY --from=builder /app/.output ./.output
+USER 1001:1001
+EXPOSE ${PORT}
+# hadolint ignore=DL3025
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}${HEALTHCHECK_PATH}" || exit 1
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["node", ".output/server/index.mjs"]

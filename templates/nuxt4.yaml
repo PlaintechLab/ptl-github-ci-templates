@@ -1,0 +1,124 @@
+# Nuxt 4 frontend: reference configuration.
+#
+# Documents the conventions and defaults of .github/workflows/build-nuxt4.yml
+# and docker/Dockerfile.nuxt4. The workflow does not read this file; its
+# inputs are the source of truth. Keep both in sync.
+
+framework:
+  name: nuxt4
+  version: "4.x"            # fixture: 4.5
+  runtime: node             # Bun installs dependencies; `nuxt build` and the Nitro server run on Node
+  bun_version: "1"
+  node_versions: ["22", "24"]  # CI matrix; Nuxt 4.5 needs ^22.19 || ^24.11
+  package_manager: bun
+  lockfile: bun.lock        # bun.lockb also accepted; must be committed
+
+commands:
+  dev: bun run dev
+  build: bun run build      # nuxt build
+  preview: bun run preview
+  test: bun run test
+  lint: bun run lint        # e.g. nuxt typecheck (vue-tsc needs TypeScript 5/6, not 7) or eslint
+  audit: bun audit --audit-level=high
+
+build:
+  output_dir: .output/      # Nitro node-server preset (default): server + traced node_modules + public
+  static_dir: .output/public/
+  srcDir: app/              # Nuxt 4 default
+  environment:
+    NODE_ENV: production
+    NUXT_TELEMETRY_DISABLED: "1"
+  build_env_secret: build-env   # only for values needed at build time
+  runtime_config: >-
+    Prefer runtimeConfig in nuxt.config, overridden at runtime with NUXT_* and
+    NUXT_PUBLIC_* env vars (Kubernetes ConfigMap/Secret), so one image serves every environment.
+  optimizations:
+    static_generation: >-
+      For a fully static site use `nuxt generate` and serve .output/public from
+      a static host instead; this workflow targets the Node server.
+
+docker:
+  dockerfile: docker/Dockerfile.nuxt4
+  dockerignore: docker/Dockerfile.nuxt4.dockerignore  # overrides the project's .dockerignore
+  stages:
+    base: node:24-alpine + bun binary
+    deps: bun install --frozen-lockfile
+    builder: bun run build
+    runtime: node:24-alpine  # .output only; node .output/server/index.mjs
+  port: 3000
+  healthcheck:
+    path: /                  # add server/routes/health.ts and set health-path: /health for a cheaper probe
+    command: wget -q -O /dev/null http://127.0.0.1:$PORT$HEALTHCHECK_PATH
+    interval: 30s
+    timeout: 5s
+    start_period: 10s
+    retries: 3
+  environment:
+    NODE_ENV: production
+    NUXT_TELEMETRY_DISABLED: "1"
+    HOST: 0.0.0.0
+    PORT: "3000"
+  security:
+    user: "1001:1001"        # non-root; .output is root-owned and read-only
+    init: tini
+    env_files_in_image: false
+  platforms: [linux/amd64, linux/arm64]
+
+github_actions:
+  workflow: .github/workflows/build-nuxt4.yml
+  jobs:
+    quality:                 # matrix over node_versions
+      steps: [setup-bun, lint, test, build, bundle report, audit (first leg), upload .output (first leg)]
+      timeout_minutes: 20
+    docker:
+      steps: [build (runner arch), size check, smoke test, trivy, push multi-arch, cosign sign]
+      timeout_minutes: 30
+  caching:
+    bun: ~/.bun/install/cache keyed on the lockfile hash
+    nuxt: none               # Nuxt has no stable persistent build cache
+    docker: GitHub Actions cache (type=gha, mode=max), one scope per image
+  required_permissions:
+    contents: read
+    packages: write
+    id-token: write
+    security-events: write
+
+environments:
+  development:
+    NODE_ENV: development
+  staging:
+    NODE_ENV: production
+    NUXT_TELEMETRY_DISABLED: "1"
+  production:
+    NODE_ENV: production
+    NUXT_TELEMETRY_DISABLED: "1"
+
+registry:
+  host: ghcr.io
+  image: ghcr.io/plaintechlab/<product>-<app>
+  auth: GITHUB_TOKEN (default) or registry-username / registry-password secrets
+  tags: ["<branch>", "pr-<number>", "<version>", "<major>.<minor>", "sha-<short sha>", "latest (default branch)"]
+  attestations: [provenance (mode=max), sbom]
+  signing: cosign keyless
+
+artifacts:
+  name: nuxt4-output
+  include: [.output/]
+  exclude: [node_modules/, .nuxt/]
+  retention_days: 5
+
+performance_targets:
+  build_time_minutes: 5      # same as Next.js; reported, not enforced
+  image_size_mb: 400         # same as Next.js; enforced (max-image-size-mb); the fixture is ~165 MB
+  bundle_size: tracked       # client JS total, gzipped total and top 10 chunks in the job summary
+  startup_time_s: 10
+
+security:
+  dependency_audit: bun audit, fails at >= high
+  image_scan: Trivy, fails on unfixed-excluded CRITICAL/HIGH
+  sbom: BuildKit SBOM attestation on the pushed image
+  non_root_user: true
+  package_managers_in_runtime: false   # npm/npx/yarn/corepack removed from node images
+  base_image_patching: apk upgrade in the runtime stage (base images lag behind Alpine security fixes)
+  healthcheck: required
+  actions_pinned_by_sha: true

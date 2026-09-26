@@ -1,0 +1,112 @@
+name: CI
+
+# Lints this repository and runs every reusable workflow against its fixture in
+# test/fixtures (images are built, smoke-tested and scanned, never pushed).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint workflows, Dockerfiles and scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        # actionlint does not know the job.workflow_* context properties yet.
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest \
+            -ignore 'property "workflow_(repository|sha)" is not defined'
+
+      - name: hadolint
+        run: |
+          for f in docker/Dockerfile.elysia docker/Dockerfile.nextjs docker/Dockerfile.nuxt4 docker/Dockerfile.go; do
+            echo "== $f"
+            docker run --rm -i -v "$PWD/.hadolint.yaml:/.config/hadolint.yaml:ro" hadolint/hadolint:latest hadolint - < "$f"
+          done
+
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+
+  elysia:
+    name: Elysia fixture
+    needs: lint
+    uses: ./.github/workflows/build-elysia.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+    with:
+      working-directory: test/fixtures/elysia
+      image-name: ghcr.io/${{ github.repository_owner }}/ptl-fixture-elysia
+      push: false
+
+  nextjs:
+    name: Next.js fixture
+    needs: lint
+    uses: ./.github/workflows/build-nextjs.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+    with:
+      working-directory: test/fixtures/nextjs
+      image-name: ghcr.io/${{ github.repository_owner }}/ptl-fixture-nextjs
+      push: false
+    secrets:
+      build-env: |
+        NEXT_PUBLIC_BUILD_SOURCE=ci
+
+  nuxt4:
+    name: Nuxt 4 fixture
+    needs: lint
+    uses: ./.github/workflows/build-nuxt4.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+    with:
+      working-directory: test/fixtures/nuxt4
+      image-name: ghcr.io/${{ github.repository_owner }}/ptl-fixture-nuxt4
+      push: false
+
+  go:
+    name: Go fixture (${{ matrix.runtime }})
+    needs: lint
+    strategy:
+      matrix:
+        include:
+          - runtime: alpine
+            max-image-size-mb: 50
+          - runtime: distroless
+            max-image-size-mb: 20
+    uses: ./.github/workflows/build-go.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+    with:
+      working-directory: test/fixtures/go
+      image-name: ghcr.io/${{ github.repository_owner }}/ptl-fixture-go-${{ matrix.runtime }}
+      runtime: ${{ matrix.runtime }}
+      max-image-size-mb: ${{ matrix.max-image-size-mb }}
+      artifact-name: go-binary-${{ matrix.runtime }}
+      push: false
