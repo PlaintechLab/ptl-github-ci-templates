@@ -13,7 +13,7 @@ if [ "$(docker image inspect --format '{{if .Config.Healthcheck}}yes{{end}}' "$I
   exit 1
 fi
 
-# shellcheck disable=SC2329 # invoked by trap
+# shellcheck disable=SC2317,SC2329 # invoked by trap (SC2317 on older shellcheck)
 cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; rm -f "$env_file"; }
 trap cleanup EXIT
 
