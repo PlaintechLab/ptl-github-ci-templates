@@ -104,7 +104,8 @@ jobs:
 
 ### Monorepo
 
-เรียก workflow หลายครั้ง แต่ละครั้งใส่ `working-directory`, `image-name` และ `artifact-name` ไม่ซ้ำกัน:
+**แบบที่ 1: หลาย project ใน repo เดียว แต่ละ app มี `bun.lock` ของตัวเอง** เรียก workflow หลายครั้ง
+แต่ละครั้งใส่ `working-directory`, `image-name` และ `artifact-name` ไม่ซ้ำกัน:
 
 ```yaml
 jobs:
@@ -115,14 +116,48 @@ jobs:
       working-directory: apps/api
       image-name: ghcr.io/plaintechlab/the-fulfillment-api
       artifact-name: api-dist
-  portal:
-    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-nextjs.yml@v1
+```
+
+**แบบที่ 2: Bun workspace** (`package.json` ที่ root มี `"workspaces"` และมี `bun.lock` ไฟล์เดียวที่ root)
+ใส่ `workspace-root` เพิ่ม:
+
+```yaml
+jobs:
+  api:
+    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-elysia.yml@v1
     permissions: { contents: read, packages: write, id-token: write, security-events: write }
     with:
-      working-directory: apps/portal
-      image-name: ghcr.io/plaintechlab/the-fulfillment-portal
-      artifact-name: portal-build
+      workspace-root: .              # directory ที่มี root package.json + bun.lock
+      working-directory: apps/api    # app ที่จะ build (ต้องอยู่ใน workspace-root)
+      image-name: ghcr.io/plaintechlab/the-fulfillment-api
+      artifact-name: api-dist
+  admin:
+    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-nuxt4.yml@v1
+    permissions: { contents: read, packages: write, id-token: write, security-events: write }
+    with:
+      workspace-root: .
+      working-directory: apps/admin
+      image-name: ghcr.io/plaintechlab/the-fulfillment-admin
+      artifact-name: admin-output
 ```
+
+| ขั้นตอน | รันที่ |
+| --- | --- |
+| `bun install --frozen-lockfile`, `bun audit` | `workspace-root` |
+| lint, test, build (CI) | `working-directory` |
+| Docker build context | `workspace-root` (เห็น `packages/*` ที่ app import ได้) |
+| Docker build | `cd <app>` แล้วรัน `build-command` (ส่งเข้า Dockerfile เป็น build arg `APP_DIR`, `BUILD_COMMAND`) |
+| Image | มีเฉพาะ app นั้น: Elysia = `dist` + production deps ของ app (`bun install --filter`), Next.js = standalone output, Nuxt = `.output` |
+
+สิ่งที่ต้องมีเพิ่มใน Bun workspace:
+
+- Workspace package ที่ export เป็น TypeScript source: Next.js ต้องใส่ใน `transpilePackages` ของ next.config.
+  Elysia ต้อง bundle ลง `dist` (default ของ `bun build` อยู่แล้ว) เพราะ image ไม่มี source ของ `packages/*`
+- ถ้า package ต้อง build ก่อน app (ใช้ `dist` ของ package) ให้ `build-command` build ให้ครบ เช่น
+  `build-command: bun run --filter @acme/shared build && bun run build`
+- `.dockerignore` ของ template ใช้ pattern `**/` จึงไม่ส่ง `node_modules`, `.next`, `.output`, `.env*` ของทุก app เข้า build context
+
+ตัวอย่างที่ใช้ทดสอบจริงอยู่ที่ [test/fixtures/workspace](test/fixtures/workspace) (Elysia + Next.js + Nuxt ใช้ package ร่วมกัน)
 
 Output ของ workflow: `image`, `digest` (ว่างถ้าไม่ได้ push), `tags` ใช้ต่อใน job deploy ได้ เช่น `needs.build.outputs.digest`
 
@@ -152,6 +187,8 @@ Output ของ workflow: `image`, `digest` (ว่างถ้าไม่ไ�
 | Input | Default | หมายเหตุ |
 | --- | --- | --- |
 | `working-directory` | `.` | directory ของ project ใน repo |
+| `workspace-root` | ว่าง | Bun workspace: directory ที่มี root `package.json` + `bun.lock` (ดูหัวข้อ Monorepo) |
+| `build-command` | `bun run build` | ใช้ทั้งใน CI และใน Docker build |
 | `image-name` | `ghcr.io/<owner>/<repo>` | convention: `ghcr.io/plaintechlab/<product>-<app>` |
 | `push` | `true` | ไม่ push บน `pull_request` เสมอ (build + scan อย่างเดียว) |
 | `platforms` | `linux/amd64,linux/arm64` | image ที่ scan/smoke test คือ arch ของ runner |

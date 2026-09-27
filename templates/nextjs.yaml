@@ -28,6 +28,10 @@ build:
   environment:
     NODE_ENV: production
     NEXT_TELEMETRY_DISABLED: "1"
+  workspace: >-
+    Bun workspace supported: workspace-root input -> bun install, bun audit and the Docker context
+    run at the workspace root; lint/test/build run in working-directory; Docker gets APP_DIR and
+    BUILD_COMMAND build args and ships only that app.
   build_env_secret: build-env   # dotenv, KEY=VALUE per line, values literal; NEXT_PUBLIC_* is inlined into the client bundle
   optimizations:
     static_export: >-
