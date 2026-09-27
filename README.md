@@ -68,7 +68,9 @@ jobs:
     with:
       image-name: ghcr.io/plaintechlab/the-fulfillment-portal
     secrets:
-      build-env: ${{ secrets.NEXT_BUILD_ENV }}   # NEXT_PUBLIC_API_URL=... (optional)
+      build-env: |                               # optional; ดูหัวข้อ build-env
+        NEXT_PUBLIC_API_URL=${{ vars.API_URL }}
+        NEXT_PUBLIC_SENTRY_DSN=${{ secrets.SENTRY_DSN }}
 ```
 
 ### Nuxt 4
@@ -84,7 +86,7 @@ jobs:
 ```
 
 Config ที่ต่างกันแต่ละ environment ให้ใช้ `runtimeConfig` แล้ว override ตอน runtime ด้วย env `NUXT_*` / `NUXT_PUBLIC_*`
-image เดียวจะใช้ได้ทุก environment. `build-env` ใช้เฉพาะค่าที่ต้องรู้ตอน build จริง ๆ
+image เดียวจะใช้ได้ทุก environment. `build-env` ใช้เฉพาะค่าที่ต้องรู้ตอน build จริง ๆ (ดู[หัวข้อ build-env](#build-env-ค่าที่ต้องใช้ตอน-build-elysia-nextjs-nuxt))
 
 ### Go
 
@@ -161,9 +163,40 @@ Output ของ workflow: `image`, `digest` (ว่างถ้าไม่ไ�
 | `dockerfile` | ว่าง = ใช้ของ repo นี้ | path เทียบกับ `working-directory`; ใช้ stage สุดท้ายของไฟล์ |
 | `registry` | `ghcr.io` | registry อื่นใส่ secret `registry-username` / `registry-password` |
 
-Secret `build-env` (Elysia, Next.js, Nuxt): dotenv แบบที่ shell `source` ได้ ถูก export ตอน build ทั้งใน CI และใน Docker
-(ผ่าน BuildKit secret จึงไม่อยู่ใน image layer). ใช้กับ `NEXT_PUBLIC_*` ซึ่ง Next.js ฝังลงใน bundle ตอน build.
-Secret ของ runtime ให้ใส่ผ่าน Kubernetes Secret ([ptl-helm-charts](../ptl-helm-charts) `envFromSecrets`) ไม่ใช่ตอน build
+### `build-env`: ค่าที่ต้องใช้ตอน build (Elysia, Next.js, Nuxt)
+
+เป็น secret ตัวเดียว เนื้อหาเป็น dotenv บรรทัดละ 1 ค่า `KEY=VALUE` ถูก export ตอน build ทั้งใน CI และใน Docker
+(ส่งเป็น BuildKit secret จึงไม่อยู่ใน image layer). มีหลายค่าก็ใส่หลายบรรทัด ทำได้ 2 แบบ:
+
+**แบบ 1: เก็บทั้งก้อนใน GitHub secret ตัวเดียว** (เช่นสร้าง secret `NUXT_BUILD_ENV` ใน Settings → Secrets แล้ววางหลายบรรทัด)
+
+```yaml
+    secrets:
+      build-env: ${{ secrets.NUXT_BUILD_ENV }}
+```
+
+**แบบ 2: ประกอบจาก secret/variable หลายตัวใน caller** (แนะนำ เพราะแก้ทีละค่าได้ และค่าที่ไม่ลับเก็บเป็น variable ได้)
+
+```yaml
+    secrets:
+      build-env: |
+        NUXT_PUBLIC_API_BASE=${{ vars.API_BASE_URL }}
+        NUXT_PUBLIC_SITE_NAME=PlaintechLab Admin
+        SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}
+```
+
+กติกาของไฟล์:
+
+- ค่าอ่านตรงตามตัวอักษร ไม่ผ่าน shell: `$`, `&`, `` ` ``, ช่องว่าง, `;` ใช้ได้เลยไม่ต้อง escape
+- ถ้าค่าถูกครอบด้วย `"..."` หรือ `'...'` จะตัด quote คู่นอกสุดออก 1 คู่
+- บรรทัดว่างและบรรทัดขึ้นต้นด้วย `#` ถูกข้าม, มี `export ` นำหน้าได้
+- ค่าหลายบรรทัดใช้ไม่ได้ (เช่น private key แบบ PEM) ให้ encode เป็น base64 ก่อนแล้วค่อย decode ในโค้ด
+- ชื่อตัวแปรผิดรูปแบบ (เช่น `BAD-NAME`) ทำให้ build fail ทันที โดย error บอกแค่เลขบรรทัด ไม่แสดงค่า
+- เปลี่ยนค่าแล้ว image จะ build ใหม่แน่นอน (workflow ส่ง sha256 ของ `build-env` เป็น build arg เพราะ BuildKit ไม่นับ secret ใน cache key)
+
+ใช้กับค่าที่ต้องฝังตอน build เท่านั้น เช่น `NEXT_PUBLIC_*` ของ Next.js หรือ token สำหรับ upload source map.
+Secret ของ runtime ให้ใส่ผ่าน Kubernetes Secret ([ptl-helm-charts](../ptl-helm-charts) `envFromSecrets`) ไม่ใช่ตอน build.
+Nuxt ใช้ `runtimeConfig` + env `NUXT_*` ตอน runtime ได้ จึงแทบไม่ต้องใช้ `build-env`
 
 ## Security
 

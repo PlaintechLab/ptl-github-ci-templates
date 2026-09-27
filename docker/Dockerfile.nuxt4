@@ -9,10 +9,11 @@
 # Build args:
 #   BUN_VERSION, NODE_VERSION   base image versions
 #   HEALTHCHECK_PATH            path probed by HEALTHCHECK (default /)
+#   BUILD_ENV_HASH              sha256 of the build-env secret (set by the workflow; busts the build cache)
 #   PORT                        port the server listens on (default 3000)
 #
 # Build secret:
-#   build-env   shell-compatible dotenv, exported for `nuxt build` only.
+#   build-env   dotenv (KEY=VALUE per line, values literal), exported for `nuxt build` only.
 #               Runtime config belongs in NUXT_* / NUXT_PUBLIC_* env vars at runtime.
 
 ARG BUN_VERSION=1
@@ -35,12 +36,54 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 
 # ---- builder --------------------------------------------------------------------
 FROM base AS builder
+# Literal dotenv loader for the build-env secret (copy of scripts/load-dotenv.sh).
+COPY <<'EOF' /usr/local/lib/ptl/load-dotenv.sh
+# shellcheck shell=sh
+# Export KEY=VALUE lines from a dotenv file WITHOUT shell evaluation, so secret
+# values containing $ ` & ; spaces or quotes are taken literally.
+#
+# Usage:  . scripts/load-dotenv.sh && ptl_load_dotenv <file>
+#
+# Rules: one variable per line (no multi-line values); blank lines and lines
+# starting with # are skipped; an "export " prefix is allowed; one pair of
+# surrounding '...' or "..." is removed from the value.
+#
+# docker/Dockerfile.{elysia,nextjs,nuxt4} embed a copy of this function; keep them in sync.
+ptl_load_dotenv() {
+  _ptl_n=0
+  while IFS= read -r _ptl_line || [ -n "$_ptl_line" ]; do
+    _ptl_n=$((_ptl_n + 1))
+    _ptl_line=${_ptl_line%"$(printf '\r')"}
+    _ptl_line=${_ptl_line#"${_ptl_line%%[! 	]*}"}
+    case "$_ptl_line" in '' | '#'*) continue ;; esac
+    _ptl_line=${_ptl_line#export }
+    case "$_ptl_line" in
+      *=*) ;;
+      *) echo "load-dotenv: line $_ptl_n has no '='" >&2; return 1 ;;
+    esac
+    _ptl_key=${_ptl_line%%=*}
+    _ptl_val=${_ptl_line#*=}
+    case "$_ptl_key" in
+      '' | [0-9]* | *[!A-Za-z0-9_]*) echo "load-dotenv: line $_ptl_n has an invalid variable name" >&2; return 1 ;;
+    esac
+    case "$_ptl_val" in
+      \"*\") _ptl_val=${_ptl_val#\"}; _ptl_val=${_ptl_val%\"} ;;
+      \'*\') _ptl_val=${_ptl_val#\'}; _ptl_val=${_ptl_val%\'} ;;
+    esac
+    export "$_ptl_key=$_ptl_val"
+  done < "$1"
+  unset _ptl_n _ptl_line _ptl_key _ptl_val
+}
+EOF
+
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# BuildKit leaves secrets out of the cache key; this hash makes a changed build-env rebuild the layer.
+ARG BUILD_ENV_HASH=
 RUN --mount=type=secret,id=build-env,required=false \
     set -e; \
-    if [ -f /run/secrets/build-env ]; then set -a; . /run/secrets/build-env; set +a; fi; \
+    if [ -f /run/secrets/build-env ]; then . /usr/local/lib/ptl/load-dotenv.sh; ptl_load_dotenv /run/secrets/build-env; fi; \
     bun run build; \
     rm -f .output/.env* .output/server/.env*; \
     test -f .output/server/index.mjs || { echo 'No .output/server/index.mjs: use the node-server Nitro preset'; exit 1; }

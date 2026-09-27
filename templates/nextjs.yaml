@@ -28,7 +28,7 @@ build:
   environment:
     NODE_ENV: production
     NEXT_TELEMETRY_DISABLED: "1"
-  build_env_secret: build-env   # dotenv for NEXT_PUBLIC_* (inlined into the client bundle at build time)
+  build_env_secret: build-env   # dotenv, KEY=VALUE per line, values literal; NEXT_PUBLIC_* is inlined into the client bundle
   optimizations:
     static_export: >-
       For a pure SPA set output: "export" and serve out/ from a static host

@@ -116,7 +116,7 @@ on:
         description: Registry password or token. Default is GITHUB_TOKEN (enough for ghcr.io).
         required: false
       build-env:
-        description: dotenv content sourced during the build, in CI and in Docker (as a BuildKit secret).
+        description: dotenv (KEY=VALUE per line, values taken literally) exported during the build, in CI and in Docker (as a BuildKit secret).
         required: false
     outputs:
       image:
@@ -186,7 +186,7 @@ jobs:
           BUILD_ENV: ${{ secrets.build-env }}
           ENTRY_POINT: ${{ inputs.entry-point }}
         run: |
-          if [ -n "$BUILD_ENV" ]; then set -a; . /dev/stdin <<< "$BUILD_ENV"; set +a; fi
+          if [ -n "$BUILD_ENV" ]; then . "$GITHUB_WORKSPACE/.ptl/scripts/load-dotenv.sh"; ptl_load_dotenv /dev/stdin <<< "$BUILD_ENV"; fi
           ${{ inputs.build-command }}
           if [ ! -f "$ENTRY_POINT" ]; then
             echo "::error::Build did not produce $ENTRY_POINT (set the entry-point input)"
@@ -247,6 +247,15 @@ jobs:
           PUSH: ${{ inputs.push && github.event_name != 'pull_request' }}
         run: bash .ptl/scripts/resolve-docker-config.sh elysia "runtime-$RUNTIME"
 
+      - name: Hash build-env
+        id: build-env
+        env:
+          BUILD_ENV: ${{ secrets.build-env }}
+        run: |
+          if [ -n "$BUILD_ENV" ]; then
+            echo "hash=$(printf '%s' "$BUILD_ENV" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
@@ -285,6 +294,7 @@ jobs:
             APP_ENTRY=${{ inputs.entry-point }}
             HEALTHCHECK_PATH=${{ inputs.health-path }}
             PORT=${{ inputs.port }}
+            BUILD_ENV_HASH=${{ steps.build-env.outputs.hash }}
           secret-envs: build-env=BUILD_ENV
           cache-from: type=gha,scope=${{ steps.config.outputs.cache-scope }}
           cache-to: type=gha,mode=max,scope=${{ steps.config.outputs.cache-scope }}
@@ -360,6 +370,7 @@ jobs:
             APP_ENTRY=${{ inputs.entry-point }}
             HEALTHCHECK_PATH=${{ inputs.health-path }}
             PORT=${{ inputs.port }}
+            BUILD_ENV_HASH=${{ steps.build-env.outputs.hash }}
           secret-envs: build-env=BUILD_ENV
           cache-from: type=gha,scope=${{ steps.config.outputs.cache-scope }}
           cache-to: type=gha,mode=max,scope=${{ steps.config.outputs.cache-scope }}

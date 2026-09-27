@@ -42,6 +42,13 @@ jobs:
       - name: shellcheck
         run: shellcheck scripts/*.sh
 
+      - name: Embedded load-dotenv copies match scripts/load-dotenv.sh
+        run: |
+          for f in docker/Dockerfile.elysia docker/Dockerfile.nextjs docker/Dockerfile.nuxt4; do
+            awk '/^COPY <<.EOF. \/usr\/local\/lib\/ptl\/load-dotenv.sh$/ {on=1; next} on && /^EOF$/ {exit} on' "$f" \
+              | diff -u scripts/load-dotenv.sh - || { echo "::error file=$f::embedded load-dotenv differs from scripts/load-dotenv.sh"; exit 1; }
+          done
+
   elysia:
     name: Elysia fixture
     needs: lint

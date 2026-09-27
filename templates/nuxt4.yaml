@@ -28,7 +28,7 @@ build:
   environment:
     NODE_ENV: production
     NUXT_TELEMETRY_DISABLED: "1"
-  build_env_secret: build-env   # only for values needed at build time
+  build_env_secret: build-env   # dotenv, KEY=VALUE per line, values literal; only for values needed at build time
   runtime_config: >-
     Prefer runtimeConfig in nuxt.config, overridden at runtime with NUXT_* and
     NUXT_PUBLIC_* env vars (Kubernetes ConfigMap/Secret), so one image serves every environment.

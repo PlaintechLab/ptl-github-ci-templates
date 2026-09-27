@@ -24,7 +24,7 @@ build:
   entry_point: dist/index.js
   environment:
     NODE_ENV: production
-  build_env_secret: build-env   # shell-compatible dotenv, exported during the build only
+  build_env_secret: build-env   # dotenv, KEY=VALUE per line, values literal; exported during the build only
 
 docker:
   dockerfile: docker/Dockerfile.elysia
