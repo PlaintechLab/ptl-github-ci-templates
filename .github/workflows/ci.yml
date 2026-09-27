@@ -98,6 +98,7 @@ jobs:
     name: Go fixture (${{ matrix.runtime }})
     needs: lint
     strategy:
+      fail-fast: false
       matrix:
         include:
           - runtime: alpine

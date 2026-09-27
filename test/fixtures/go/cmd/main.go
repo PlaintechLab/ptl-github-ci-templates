@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -20,15 +21,20 @@ func newMux() *http.ServeMux {
 }
 
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8000"
+	// Parse PORT as a number so a malformed value fails fast and never reaches the log verbatim.
+	port := 8000
+	if v := os.Getenv("PORT"); v != "" {
+		p, err := strconv.Atoi(v)
+		if err != nil || p < 1 || p > 65535 {
+			log.Fatal("PORT must be a number between 1 and 65535")
+		}
+		port = p
 	}
 	srv := &http.Server{
-		Addr:              ":" + port,
+		Addr:              ":" + strconv.Itoa(port),
 		Handler:           newMux(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	log.Printf("listening on :%s (version %s)", port, version)
+	log.Printf("listening on :%d (version %s)", port, version)
 	log.Fatal(srv.ListenAndServe())
 }
