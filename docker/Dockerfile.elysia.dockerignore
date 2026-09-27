@@ -1,12 +1,13 @@
 # Used by BuildKit instead of the project's .dockerignore when building with Dockerfile.elysia.
+# **/ patterns also cover every app and package of a Bun workspace.
 .git
 .github
-node_modules
-dist
-coverage
-.env
-.env.*
-*.log
-.DS_Store
+**/node_modules
+**/dist
+**/coverage
+**/.env
+**/.env.*
+**/*.log
+**/.DS_Store
 Dockerfile*
 docker-compose*

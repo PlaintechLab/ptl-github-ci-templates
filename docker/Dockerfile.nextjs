@@ -2,13 +2,19 @@
 #
 # Next.js frontend, dependencies installed with Bun, built and served by Node.js.
 #
-# Requires `output: "standalone"` in next.config.{js,mjs,ts}: the runtime image
-# ships only .next/standalone (server + traced node_modules), .next/static and public/.
+# Requires `output: "standalone"` in next.config. The runtime image ships only the
+# standalone server (+ traced node_modules), .next/static and public/. In a Bun
+# workspace Next.js nests the server under .next/standalone/<APP_DIR>/; both
+# layouts are handled, and /app/server.js always starts the app.
 #
 # Build args:
 #   BUN_VERSION, NODE_VERSION   base image versions
-#   HEALTHCHECK_PATH            path probed by HEALTHCHECK (default /)
+#   APP_DIR                     app directory relative to the build context (default .).
+#                               For a Bun workspace the context is the workspace root and
+#                               APP_DIR is e.g. apps/api; standalone projects keep ".".
+#   BUILD_COMMAND               build command, run inside APP_DIR (default "bun run build")
 #   BUILD_ENV_HASH              sha256 of the build-env secret (set by the workflow; busts the build cache)
+#   HEALTHCHECK_PATH            path probed by HEALTHCHECK (default /)
 #   PORT                        port the server listens on (default 3000)
 #
 # Build secret:
@@ -20,16 +26,29 @@ ARG NODE_VERSION=24
 
 FROM oven/bun:${BUN_VERSION}-alpine AS bun
 
-# ---- base: Node.js with the Bun binary, so `next build` runs on real Node ----
+# ---- base: Node.js with the Bun binary, so the framework build runs on real Node ----
 FROM node:${NODE_VERSION}-alpine AS base
 RUN apk add --no-cache libc6-compat libstdc++
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# ---- manifests: every package.json + lockfile, so a Bun workspace installs with
+# --frozen-lockfile. Its output only changes when a manifest changes, which keeps
+# the deps layer cached across source edits.
+FROM base AS manifests
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+WORKDIR /src
+COPY . .
+RUN mkdir -p /out \
+ && find . \( -name node_modules -o -name .git \) -prune -o \
+      \( -name package.json -o -name bun.lock -o -name bun.lockb -o -name bunfig.toml \) -type f -print \
+    | tar -cf - -T - | tar -xf - -C /out \
+ && if [ -d patches ]; then cp -r patches /out/patches; fi
+
 # ---- deps ---------------------------------------------------------------------
 FROM base AS deps
-COPY package.json bun.lock* bun.lockb* ./
+COPY --from=manifests /out/ ./
 RUN --mount=type=cache,target=/root/.bun/install/cache \
     bun install --frozen-lockfile
 
@@ -75,19 +94,29 @@ ptl_load_dotenv() {
 }
 EOF
 
+ARG APP_DIR=.
+ARG BUILD_COMMAND="bun run build"
 ENV NODE_ENV=production
-COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app ./
 COPY . .
+WORKDIR /app/${APP_DIR}
 # BuildKit leaves secrets out of the cache key; this hash makes a changed build-env rebuild the layer.
 ARG BUILD_ENV_HASH=
-RUN --mount=type=cache,target=/app/.next/cache \
+RUN --mount=type=cache,target=/app/${APP_DIR}/.next/cache \
     --mount=type=secret,id=build-env,required=false \
     set -e; \
     if [ -f /run/secrets/build-env ]; then . /usr/local/lib/ptl/load-dotenv.sh; ptl_load_dotenv /run/secrets/build-env; fi; \
-    bun run build; \
-    rm -f .next/standalone/.env*; \
-    test -f .next/standalone/server.js || { echo 'No .next/standalone/server.js: set output: "standalone" in next.config'; exit 1; }; \
-    mkdir -p public
+    sh -c "$BUILD_COMMAND"; \
+    if [ -f .next/standalone/server.js ]; then srv=.; \
+    elif [ -f ".next/standalone/$APP_DIR/server.js" ]; then srv="$APP_DIR"; \
+    else echo 'No .next/standalone server.js: set output: "standalone" in next.config'; exit 1; fi; \
+    mkdir -p /out; \
+    cp -a .next/standalone/. /out/; \
+    mkdir -p "/out/$srv/.next"; \
+    cp -a .next/static "/out/$srv/.next/static"; \
+    if [ -d public ]; then cp -a public "/out/$srv/public"; fi; \
+    find /out -name node_modules -prune -o -name '.env*' -type f -exec rm -f {} +; \
+    if [ "$srv" != . ]; then ln -s "$srv/server.js" /out/server.js; fi
 
 # ---- runtime ----------------------------------------------------------------------
 FROM node:${NODE_VERSION}-alpine AS runtime
@@ -106,10 +135,10 @@ ENV NODE_ENV=production \
     PORT=${PORT} \
     HEALTHCHECK_PATH=${HEALTHCHECK_PATH}
 # Code stays root-owned (read-only for the app user); only the ISR/image cache is writable.
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-RUN mkdir -p .next/cache && chown 1001:1001 .next/cache
+# In a workspace /app/server.js is a symlink; Node resolves it, so the server runs from its real directory.
+COPY --from=builder /out ./
+RUN cache="$(dirname "$(readlink -f server.js)")/.next/cache" \
+ && mkdir -p "$cache" && chown 1001:1001 "$cache"
 USER 1001:1001
 EXPOSE ${PORT}
 # hadolint ignore=DL3025

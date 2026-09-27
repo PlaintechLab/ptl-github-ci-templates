@@ -13,6 +13,14 @@ on:
         description: Project directory, relative to the repository root.
         type: string
         default: .
+      workspace-root:
+        description: >-
+          Bun workspace root (root package.json + bun.lock), relative to the repository root, for an app
+          inside a Bun workspace. bun install, bun audit and the Docker build context use this directory;
+          lint, test and build still run in working-directory, which must be inside it. Empty = working-directory
+          is a standalone project.
+        type: string
+        default: ""
       runs-on:
         description: Runner label for every job.
         type: string
@@ -133,6 +141,7 @@ permissions: {}
 
 env:
   APP_DIR: ${{ inputs.working-directory == '.' && 'src' || format('src/{0}', inputs.working-directory) }}
+  INSTALL_DIR: ${{ inputs.workspace-root != '' && (inputs.workspace-root == '.' && 'src' || format('src/{0}', inputs.workspace-root)) || (inputs.working-directory == '.' && 'src' || format('src/{0}', inputs.working-directory)) }}
 
 jobs:
   quality:
@@ -168,7 +177,7 @@ jobs:
         with:
           bun-version: ${{ inputs.bun-version }}
           node-version: ${{ matrix.node-version }}
-          working-directory: ${{ env.APP_DIR }}
+          working-directory: ${{ env.INSTALL_DIR }}
 
       - name: Lint
         if: inputs.lint-command != ''
@@ -195,6 +204,7 @@ jobs:
 
       - name: Audit dependencies
         if: strategy.job-index == 0 && inputs.audit-level != ''
+        working-directory: ${{ env.INSTALL_DIR }}
         run: bun audit --audit-level="$AUDIT_LEVEL"
         env:
           AUDIT_LEVEL: ${{ inputs.audit-level }}
@@ -242,6 +252,8 @@ jobs:
         env:
           IMAGE_NAME: ${{ inputs.image-name }}
           REGISTRY: ${{ inputs.registry }}
+          WORKSPACE_ROOT: ${{ inputs.workspace-root }}
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
           DOCKERFILE: ${{ inputs.dockerfile }}
           RUNTIME: ${{ inputs.runtime }}
           PUSH: ${{ inputs.push && github.event_name != 'pull_request' }}
@@ -282,7 +294,7 @@ jobs:
           BUILD_ENV: ${{ secrets.build-env }}
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: ${{ env.APP_DIR }}
+          context: ${{ steps.config.outputs.context }}
           file: ${{ steps.config.outputs.dockerfile }}
           target: ${{ steps.config.outputs.target }}
           platforms: ${{ steps.config.outputs.local-platform }}
@@ -294,6 +306,8 @@ jobs:
             APP_ENTRY=${{ inputs.entry-point }}
             HEALTHCHECK_PATH=${{ inputs.health-path }}
             PORT=${{ inputs.port }}
+            APP_DIR=${{ steps.config.outputs.app-path }}
+            BUILD_COMMAND=${{ inputs.build-command }}
             BUILD_ENV_HASH=${{ steps.build-env.outputs.hash }}
           secret-envs: build-env=BUILD_ENV
           cache-from: type=gha,scope=${{ steps.config.outputs.cache-scope }}
@@ -354,7 +368,7 @@ jobs:
           BUILD_ENV: ${{ secrets.build-env }}
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: ${{ env.APP_DIR }}
+          context: ${{ steps.config.outputs.context }}
           file: ${{ steps.config.outputs.dockerfile }}
           target: ${{ steps.config.outputs.target }}
           platforms: ${{ inputs.platforms }}
@@ -370,6 +384,8 @@ jobs:
             APP_ENTRY=${{ inputs.entry-point }}
             HEALTHCHECK_PATH=${{ inputs.health-path }}
             PORT=${{ inputs.port }}
+            APP_DIR=${{ steps.config.outputs.app-path }}
+            BUILD_COMMAND=${{ inputs.build-command }}
             BUILD_ENV_HASH=${{ steps.build-env.outputs.hash }}
           secret-envs: build-env=BUILD_ENV
           cache-from: type=gha,scope=${{ steps.config.outputs.cache-scope }}

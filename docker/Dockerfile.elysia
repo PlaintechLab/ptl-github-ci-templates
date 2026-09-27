@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 #
-# ElysiaJS backend, built with Bun.
+# ElysiaJS backend, built with Bun. Works for a standalone project or one app
+# inside a Bun workspace (build context = workspace root, APP_DIR = the app).
 #
 # Targets:
 #   runtime-bun   (default) Bun runtime. Elysia is Bun-first; use this unless you need Node.
@@ -8,27 +9,51 @@
 #
 # Build args:
 #   BUN_VERSION, NODE_VERSION   base image versions
-#   APP_ENTRY                   built entry point, relative to the project root (default dist/index.js)
-#   HEALTHCHECK_PATH            path probed by HEALTHCHECK (default /health)
+#   APP_DIR                     app directory relative to the build context (default .).
+#                               For a Bun workspace the context is the workspace root and
+#                               APP_DIR is e.g. apps/api; standalone projects keep ".".
+#   BUILD_COMMAND               build command, run inside APP_DIR (default "bun run build")
 #   BUILD_ENV_HASH              sha256 of the build-env secret (set by the workflow; busts the build cache)
+#   APP_ENTRY                   built entry point relative to APP_DIR, under dist/ (default dist/index.js)
+#   HEALTHCHECK_PATH            path probed by HEALTHCHECK (default /health)
 #   PORT                        port the app listens on (default 3000)
 
 ARG BUN_VERSION=1
 ARG NODE_VERSION=24
 
+# ---- manifests: every package.json + lockfile, so a Bun workspace installs with
+# --frozen-lockfile. Its output only changes when a manifest changes, which keeps
+# the deps layer cached across source edits.
+FROM oven/bun:${BUN_VERSION}-alpine AS manifests
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+WORKDIR /src
+COPY . .
+RUN mkdir -p /out \
+ && find . \( -name node_modules -o -name .git \) -prune -o \
+      \( -name package.json -o -name bun.lock -o -name bun.lockb -o -name bunfig.toml \) -type f -print \
+    | tar -cf - -T - | tar -xf - -C /out \
+ && if [ -d patches ]; then cp -r patches /out/patches; fi
+
 # ---- deps: full install, cached between builds -----------------------------
 FROM oven/bun:${BUN_VERSION}-alpine AS deps
 WORKDIR /app
-COPY package.json bun.lock* bun.lockb* ./
+COPY --from=manifests /out/ ./
 RUN --mount=type=cache,target=/root/.bun/install/cache \
     bun install --frozen-lockfile
 
-# ---- prod-deps: runtime dependencies only ----------------------------------
+# ---- prod-deps: runtime dependencies of APP_DIR only ------------------------
 FROM oven/bun:${BUN_VERSION}-alpine AS prod-deps
+ARG APP_DIR=.
 WORKDIR /app
-COPY package.json bun.lock* bun.lockb* ./
+COPY --from=manifests /out/ ./
 RUN --mount=type=cache,target=/root/.bun/install/cache \
-    bun install --frozen-lockfile --production --omit=peer
+    set -e; \
+    if [ "$APP_DIR" = . ]; then \
+      bun install --frozen-lockfile --production --omit=peer; \
+    else \
+      bun install --frozen-lockfile --production --omit=peer --filter "./$APP_DIR"; \
+    fi; \
+    mkdir -p "$APP_DIR/node_modules"
 
 # ---- builder ----------------------------------------------------------------
 FROM deps AS builder
@@ -72,19 +97,23 @@ ptl_load_dotenv() {
 }
 EOF
 
+ARG APP_DIR=.
 ARG APP_ENTRY=dist/index.js
+ARG BUILD_COMMAND="bun run build"
 ENV NODE_ENV=production
 COPY . .
+WORKDIR /app/${APP_DIR}
 # BuildKit leaves secrets out of the cache key; this hash makes a changed build-env rebuild the layer.
 ARG BUILD_ENV_HASH=
 RUN --mount=type=secret,id=build-env,required=false \
     set -e; \
     if [ -f /run/secrets/build-env ]; then . /usr/local/lib/ptl/load-dotenv.sh; ptl_load_dotenv /run/secrets/build-env; fi; \
-    bun run build; \
-    test -f "$APP_ENTRY" || { echo "Build did not produce $APP_ENTRY (set the APP_ENTRY build arg)"; exit 1; }
+    sh -c "$BUILD_COMMAND"; \
+    test -f "$APP_ENTRY" || { echo "Build did not produce $APP_DIR/$APP_ENTRY (set the APP_ENTRY build arg)"; exit 1; }
 
 # ---- runtime-node -------------------------------------------------------------
 FROM node:${NODE_VERSION}-alpine AS runtime-node
+ARG APP_DIR=.
 ARG APP_ENTRY=dist/index.js
 ARG HEALTHCHECK_PATH=/health
 ARG PORT=3000
@@ -95,16 +124,17 @@ RUN apk upgrade --no-cache \
  && addgroup -S -g 1001 app \
  && adduser -S -D -H -u 1001 -G app app \
  && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
-WORKDIR /app
 ENV NODE_ENV=production \
     BUN_ENV=production \
     PORT=${PORT} \
     APP_ENTRY=${APP_ENTRY} \
     HEALTHCHECK_PATH=${HEALTHCHECK_PATH}
 # Files stay root-owned: the app user can read but not modify its own code.
-COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/dist ./dist
+# Workspace layout is kept (/app/<APP_DIR>) so node_modules symlinks stay valid.
+WORKDIR /app
+COPY --from=prod-deps /app ./
+COPY --from=builder /app/${APP_DIR}/dist ./${APP_DIR}/dist
+WORKDIR /app/${APP_DIR}
 USER 1001:1001
 EXPOSE ${PORT}
 # hadolint ignore=DL3025
@@ -115,6 +145,7 @@ CMD ["sh", "-c", "exec node \"$APP_ENTRY\""]
 
 # ---- runtime-bun (default: last stage) ---------------------------------------
 FROM oven/bun:${BUN_VERSION}-alpine AS runtime-bun
+ARG APP_DIR=.
 ARG APP_ENTRY=dist/index.js
 ARG HEALTHCHECK_PATH=/health
 ARG PORT=3000
@@ -122,15 +153,15 @@ RUN apk upgrade --no-cache \
  && apk add --no-cache tini \
  && addgroup -S -g 1001 app \
  && adduser -S -D -H -u 1001 -G app app
-WORKDIR /app
 ENV NODE_ENV=production \
     BUN_ENV=production \
     PORT=${PORT} \
     APP_ENTRY=${APP_ENTRY} \
     HEALTHCHECK_PATH=${HEALTHCHECK_PATH}
-COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/dist ./dist
+WORKDIR /app
+COPY --from=prod-deps /app ./
+COPY --from=builder /app/${APP_DIR}/dist ./${APP_DIR}/dist
+WORKDIR /app/${APP_DIR}
 USER 1001:1001
 EXPOSE ${PORT}
 # hadolint ignore=DL3025

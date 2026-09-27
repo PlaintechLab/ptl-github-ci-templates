@@ -94,6 +94,54 @@ jobs:
       image-name: ghcr.io/${{ github.repository_owner }}/ptl-fixture-nuxt4
       push: false
 
+  workspace-api:
+    name: Bun workspace / Elysia (apps/api)
+    needs: lint
+    uses: ./.github/workflows/build-elysia.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+    with:
+      workspace-root: test/fixtures/workspace
+      working-directory: test/fixtures/workspace/apps/api
+      image-name: ghcr.io/${{ github.repository_owner }}/ptl-fixture-workspace-api
+      artifact-name: workspace-api-build
+      push: false
+
+  workspace-web:
+    name: Bun workspace / Next.js (apps/web)
+    needs: lint
+    uses: ./.github/workflows/build-nextjs.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+    with:
+      workspace-root: test/fixtures/workspace
+      working-directory: test/fixtures/workspace/apps/web
+      image-name: ghcr.io/${{ github.repository_owner }}/ptl-fixture-workspace-web
+      artifact-name: workspace-web-build
+      push: false
+
+  workspace-admin:
+    name: Bun workspace / Nuxt 4 (apps/admin)
+    needs: lint
+    uses: ./.github/workflows/build-nuxt4.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+    with:
+      workspace-root: test/fixtures/workspace
+      working-directory: test/fixtures/workspace/apps/admin
+      image-name: ghcr.io/${{ github.repository_owner }}/ptl-fixture-workspace-admin
+      artifact-name: workspace-admin-build
+      push: false
+
   go:
     name: Go fixture (${{ matrix.runtime }})
     needs: lint
