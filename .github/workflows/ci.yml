@@ -92,6 +92,9 @@ jobs:
     with:
       working-directory: test/fixtures/nuxt4
       image-name: ghcr.io/${{ github.repository_owner }}/ptl-fixture-nuxt4
+      # node-forge <=1.4.0 has no fixed version; it reaches these fixtures only via Nuxt's
+      # dev server (listhen), which never verifies a signature. Also exercises audit-ignore.
+      audit-ignore: GHSA-86w9-cpqp-85rv
       push: false
 
   workspace-api:
@@ -108,6 +111,9 @@ jobs:
       working-directory: test/fixtures/workspace/apps/api
       image-name: ghcr.io/${{ github.repository_owner }}/ptl-fixture-workspace-api
       artifact-name: workspace-api-build
+      # node-forge <=1.4.0 has no fixed version; it reaches these fixtures only via Nuxt's
+      # dev server (listhen), which never verifies a signature. Also exercises audit-ignore.
+      audit-ignore: GHSA-86w9-cpqp-85rv
       push: false
 
   workspace-web:
@@ -124,6 +130,9 @@ jobs:
       working-directory: test/fixtures/workspace/apps/web
       image-name: ghcr.io/${{ github.repository_owner }}/ptl-fixture-workspace-web
       artifact-name: workspace-web-build
+      # node-forge <=1.4.0 has no fixed version; it reaches these fixtures only via Nuxt's
+      # dev server (listhen), which never verifies a signature. Also exercises audit-ignore.
+      audit-ignore: GHSA-86w9-cpqp-85rv
       push: false
 
   workspace-admin:
@@ -140,6 +149,9 @@ jobs:
       working-directory: test/fixtures/workspace/apps/admin
       image-name: ghcr.io/${{ github.repository_owner }}/ptl-fixture-workspace-admin
       artifact-name: workspace-admin-build
+      # node-forge <=1.4.0 has no fixed version; it reaches these fixtures only via Nuxt's
+      # dev server (listhen), which never verifies a signature. Also exercises audit-ignore.
+      audit-ignore: GHSA-86w9-cpqp-85rv
       push: false
 
   go:
