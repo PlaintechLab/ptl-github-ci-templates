@@ -103,6 +103,7 @@ COPY . .
 WORKDIR /app/${APP_DIR}
 # BuildKit leaves secrets out of the cache key; this hash makes a changed build-env rebuild the layer.
 ARG BUILD_ENV_HASH=
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 RUN --mount=type=cache,target=/app/${APP_DIR}/.next/cache \
     --mount=type=secret,id=build-env,required=false \
     set -e; \
@@ -111,8 +112,8 @@ RUN --mount=type=cache,target=/app/${APP_DIR}/.next/cache \
     if [ -f .next/standalone/server.js ]; then srv=.; \
     elif [ -f ".next/standalone/$APP_DIR/server.js" ]; then srv="$APP_DIR"; \
     else \
-      srv=$(find .next/standalone -name node_modules -prune -o -name server.js -type f -print 2>/dev/null \
-        | awk '{ print length, $0 }' | sort -n | head -n 1 | cut -d' ' -f2-); \
+      srv=$(find .next/standalone -name node_modules -prune -o -name server.js -type f -print \
+        | awk 'NR == 1 || length < n { n = length; p = $0 } END { print p }'); \
       if [ -z "$srv" ]; then echo 'No .next/standalone server.js: set output: "standalone" in next.config'; exit 1; fi; \
       srv=$(dirname "${srv#.next/standalone/}"); \
     fi; \
