@@ -4,8 +4,9 @@
 #
 # Requires `output: "standalone"` in next.config. The runtime image ships only the
 # standalone server (+ traced node_modules), .next/static and public/. In a Bun
-# workspace Next.js nests the server under .next/standalone/<APP_DIR>/; both
-# layouts are handled, and /app/server.js always starts the app.
+# workspace (or whenever the tracing root sits above the app) Next.js nests the
+# server under .next/standalone/<path>/; any layout is handled, and
+# /app/server.js always starts the app.
 #
 # Build args:
 #   BUN_VERSION, NODE_VERSION   base image versions
@@ -109,7 +110,12 @@ RUN --mount=type=cache,target=/app/${APP_DIR}/.next/cache \
     sh -c "$BUILD_COMMAND"; \
     if [ -f .next/standalone/server.js ]; then srv=.; \
     elif [ -f ".next/standalone/$APP_DIR/server.js" ]; then srv="$APP_DIR"; \
-    else echo 'No .next/standalone server.js: set output: "standalone" in next.config'; exit 1; fi; \
+    else \
+      srv=$(find .next/standalone -name node_modules -prune -o -name server.js -type f -print 2>/dev/null \
+        | awk '{ print length, $0 }' | sort -n | head -n 1 | cut -d' ' -f2-); \
+      if [ -z "$srv" ]; then echo 'No .next/standalone server.js: set output: "standalone" in next.config'; exit 1; fi; \
+      srv=$(dirname "${srv#.next/standalone/}"); \
+    fi; \
     mkdir -p /out; \
     cp -a .next/standalone/. /out/; \
     mkdir -p "/out/$srv/.next"; \

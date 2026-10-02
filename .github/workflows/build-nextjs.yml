@@ -207,10 +207,18 @@ jobs:
         run: |
           if [ -n "$BUILD_ENV" ]; then . "$GITHUB_WORKSPACE/.ptl/scripts/load-dotenv.sh"; ptl_load_dotenv /dev/stdin <<< "$BUILD_ENV"; fi
           ${{ inputs.build-command }}
-          if [ ! -f .next/standalone/server.js ]; then
-            echo '::error::No .next/standalone/server.js. Set output: "standalone" in next.config.'
+          if [ ! -d .next/standalone ]; then
+            echo '::error::No .next/standalone. Set output: "standalone" in next.config.'
             exit 1
           fi
+          # Next.js nests server.js under the app's path relative to the tracing root
+          # (lockfile dir or outputFileTracingRoot), so it is not always at the top.
+          srv=$(find .next/standalone -name node_modules -prune -o -name server.js -type f -print | awk '{ print length, $0 }' | sort -n | head -n 1 | cut -d' ' -f2-)
+          if [ -z "$srv" ]; then
+            echo '::error::No server.js under .next/standalone. Set output: "standalone" in next.config.'
+            exit 1
+          fi
+          echo "Standalone server: $srv"
 
       - name: Report bundle size
         if: strategy.job-index == 0
