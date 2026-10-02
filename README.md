@@ -249,7 +249,7 @@ Nuxt ใช้ `runtimeConfig` + env `NUXT_*` ตอน runtime ได้ จึ
   ```
 
   Certificate identity เป็นของ reusable workflow ใน repo นี้ ไม่ใช่ของ project
-- Dependency: `bun audit` (fail ที่ `audit-level`, default `high`), Go ใช้ gosec + govulncheck
+- Dependency: `bun audit` (fail ที่ `audit-level`, default `high`; `audit-ignore` ข้าม advisory ที่ระบุ — ใช้เฉพาะตัวที่ไม่มีเวอร์ชันแก้และไปไม่ถึงแอป พร้อมเขียนเหตุผลไว้ข้าง id ใน workflow ของ project; ทุกตัวที่ข้ามขึ้นเป็น warning ใน run), Go ใช้ gosec + govulncheck
 
 ## Versioning
 
