@@ -193,7 +193,7 @@ Output ของ workflow: `image`, `digest` (ว่างถ้าไม่ไ�
 | `push` | `true` | ไม่ push บน `pull_request` เสมอ (build + scan อย่างเดียว) |
 | `platforms` | `linux/amd64,linux/arm64` | image ที่ scan/smoke test คือ arch ของ runner |
 | `port` / `health-path` | 3000, 8000 (Go) / `/health`, `/` (Next.js, Nuxt) | ส่งเข้า Dockerfile เป็น build arg |
-| `node-versions` / `go-versions` | `["22","24"]` / `["go.mod","stable"]` | matrix ของ lint & test |
+| `node-versions` / `go-versions` | `["24"]` / `["go.mod","stable"]` | matrix ของ lint & test |
 | `runtime` | Elysia `bun`, Go `alpine` | Elysia: `node` (ต้องใช้ `@elysiajs/node`); Go: `distroless` |
 | `trivy-severity` | `CRITICAL,HIGH` | fail เมื่อเจอ severity นี้ที่มี fix แล้ว |
 | `max-image-size-mb` | Elysia 0 (ปิด), Next.js/Nuxt 400, Go 50 | |

@@ -28,7 +28,7 @@ on:
       node-versions:
         description: JSON array of Node.js versions for the lint & test matrix.
         type: string
-        default: '["22", "24"]'
+        default: '["24"]'
       bun-version:
         description: Bun version used in CI and for the Docker base image tag.
         type: string

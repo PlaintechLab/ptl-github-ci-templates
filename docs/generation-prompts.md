@@ -3,7 +3,7 @@
 Use these prompts to generate similar configurations for other frameworks. Customize based on your specific needs.
 
 > **Note (2026-09):** the templates generated from these prompts deviate where the prompts are out of date or
-> contradict themselves. Node 20/21 and Go 1.21/1.22 are EOL, so CI defaults to Node 22/24 and Go `go.mod` + `stable`.
+> contradict themselves. Node 20/21 and Go 1.21/1.22 are EOL, so CI defaults to Node 24 and Go `go.mod` + `stable`.
 > `oven/bun:latest-alpine` is not a real tag (`oven/bun:1-alpine` is). Elysia runs on Bun by default, because it only
 > runs on Node with `@elysiajs/node`. OIDC is used for cosign signing, and ghcr.io uses `GITHUB_TOKEN`.
 > Update the version numbers below before reusing a prompt.
