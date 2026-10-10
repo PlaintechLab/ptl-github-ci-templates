@@ -42,6 +42,16 @@ jobs:
       - name: shellcheck
         run: shellcheck scripts/*.sh
 
+      - name: platform-matrix.sh maps platforms to native runners
+        run: |
+          check() {
+            got="$(GITHUB_OUTPUT=/dev/null PLATFORMS="$1" RUNS_ON=x64 ARM_RUNS_ON="$2" bash scripts/platform-matrix.sh \
+              | sed 's/^matrix=//' | jq -c '[.include[] | [.platform, .arch, .runner, .qemu]]')"
+            [ "$got" = "$3" ] || { echo "::error::platform-matrix.sh: PLATFORMS='$1' ARM_RUNS_ON='$2' gave $got, want $3"; exit 1; }
+          }
+          check 'linux/amd64,linux/arm64' arm '[["linux/amd64","amd64","x64",false],["linux/arm64","arm64","arm",false]]'
+          check ' linux/arm64 , linux/arm/v7' '' '[["linux/arm64","arm64","x64",true],["linux/arm/v7","arm-v7","x64",true]]'
+
       - name: Embedded load-dotenv copies match scripts/load-dotenv.sh
         run: |
           for f in docker/Dockerfile.elysia docker/Dockerfile.nextjs docker/Dockerfile.nuxt4; do

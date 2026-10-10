@@ -1,7 +1,7 @@
 # ptl-github-ci-templates
 
 Reusable GitHub Actions workflow + Dockerfile กลางของ PlaintechLab. Project เรียกใช้ workflow เดียวแล้วได้ครบ:
-lint → test → dependency audit → build → Docker image (multi-arch) → smoke test health check → Trivy scan → push → cosign sign
+lint → test → dependency audit → build → Docker image → smoke test health check → Trivy scan → build แต่ละ arch บน runner ของ arch นั้น → push → รวมเป็น multi-arch tag → cosign sign
 
 | Framework | Workflow | Dockerfile | Config อ้างอิง |
 | --- | --- | --- | --- |
@@ -192,6 +192,7 @@ Output ของ workflow: `image`, `digest` (ว่างถ้าไม่ไ�
 | `image-name` | `ghcr.io/<owner>/<repo>` | convention: `ghcr.io/plaintechlab/<product>-<app>` |
 | `push` | `true` | ไม่ push บน `pull_request` เสมอ (build + scan อย่างเดียว) |
 | `platforms` | `linux/amd64,linux/arm64` | image ที่ scan/smoke test คือ arch ของ runner |
+| `arm-runs-on` | `ubuntu-24.04-arm` | (Elysia/Next.js/Nuxt) runner ที่ build `linux/arm64` แบบ native; ว่าง = build บน `runs-on` ด้วย QEMU (ช้า และ Node/Bun มัก crash ด้วย `Illegal instruction`) |
 | `port` / `health-path` | 3000, 8000 (Go) / `/health`, `/` (Next.js, Nuxt) | ส่งเข้า Dockerfile เป็น build arg |
 | `node-versions` / `go-versions` | `["24"]` / `["go.mod","stable"]` | matrix ของ lint & test |
 | `runtime` | Elysia `bun`, Go `alpine` | Elysia: `node` (ต้องใช้ `@elysiajs/node`); Go: `distroless` |

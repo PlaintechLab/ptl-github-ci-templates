@@ -58,9 +58,10 @@ else
 fi
 
 case "${RUNNER_ARCH:-X64}" in
-  ARM64) local_platform=linux/arm64 ;;
-  *)     local_platform=linux/amd64 ;;
+  ARM64) arch=arm64 ;;
+  *)     arch=amd64 ;;
 esac
+local_platform="linux/$arch"
 
 # One BuildKit cache per image, so several images in one repo don't evict each other.
 cache_scope="$(printf '%s' "${image#*/}" | tr -c 'a-z0-9._-' '-')"
@@ -72,6 +73,7 @@ cache_scope="$(printf '%s' "${image#*/}" | tr -c 'a-z0-9._-' '-')"
   echo "app-path=$app_path"
   echo "target=$target"
   echo "local-platform=$local_platform"
+  echo "arch=$arch"
   echo "scan-tag=ptl-scan/$cache_scope:$GITHUB_RUN_ID"
   echo "cache-scope=$cache_scope"
   echo "push=$PUSH"
