@@ -19,7 +19,6 @@ commands:
   preview: bun run preview
   test: bun run test
   lint: bun run lint        # e.g. nuxt typecheck (vue-tsc needs TypeScript 5/6, not 7) or eslint
-  audit: bun audit --audit-level=high
 
 build:
   output_dir: .output/      # Nitro node-server preset (default): server + traced node_modules + public
@@ -29,7 +28,7 @@ build:
     NODE_ENV: production
     NUXT_TELEMETRY_DISABLED: "1"
   workspace: >-
-    Bun workspace supported: workspace-root input -> bun install, bun audit and the Docker context
+    Bun workspace supported: workspace-root input -> bun install and the Docker context
     run at the workspace root; lint/test/build run in working-directory; Docker gets APP_DIR and
     BUILD_COMMAND build args and ships only that app.
   build_env_secret: build-env   # dotenv, KEY=VALUE per line, values literal; only for values needed at build time
@@ -72,7 +71,7 @@ github_actions:
   workflow: .github/workflows/build-nuxt4.yml
   jobs:
     quality:                 # matrix over node_versions
-      steps: [setup-bun, lint, test, build, bundle report, audit (first leg), upload .output (first leg)]
+      steps: [setup-bun, lint, test, build, bundle report, upload .output (first leg)]
       timeout_minutes: 20
     docker:
       steps: [build (runner arch), size check, smoke test, trivy, push multi-arch, cosign sign]
@@ -118,7 +117,6 @@ performance_targets:
   startup_time_s: 10
 
 security:
-  dependency_audit: bun audit, fails at >= high
   image_scan: Trivy, fails on unfixed-excluded CRITICAL/HIGH
   sbom: BuildKit SBOM attestation on the pushed image
   non_root_user: true

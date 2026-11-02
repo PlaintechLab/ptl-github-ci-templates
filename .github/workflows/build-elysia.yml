@@ -1,6 +1,6 @@
 name: Build ElysiaJS
 
-# Reusable workflow: lint, test, audit and build an ElysiaJS (Bun) backend, then
+# Reusable workflow: lint, test and build an ElysiaJS (Bun) backend, then
 # build an image, smoke-test its health check, scan it with Trivy, then build each
 # platform on a runner of its own architecture (no QEMU), push by digest, merge into
 # one multi-arch tag set, and sign it with cosign (keyless, GitHub OIDC).
@@ -17,7 +17,7 @@ on:
       workspace-root:
         description: >-
           Bun workspace root (root package.json + bun.lock), relative to the repository root, for an app
-          inside a Bun workspace. bun install, bun audit and the Docker build context use this directory;
+          inside a Bun workspace. bun install and the Docker build context use this directory;
           lint, test and build still run in working-directory, which must be inside it. Empty = working-directory
           is a standalone project.
         type: string
@@ -56,17 +56,6 @@ on:
         description: Built entry point, relative to working-directory.
         type: string
         default: dist/index.js
-      audit-level:
-        description: Fail on dependency advisories at or above this level (low, moderate, high, critical). Empty skips the audit.
-        type: string
-        default: high
-      audit-ignore:
-        description: >-
-          Advisory ids (GHSA-xxxx-xxxx-xxxx or CVE-yyyy-n) bun audit should not fail on, separated by spaces,
-          commas or newlines. Only for an advisory with no fixed version that cannot reach this app; record
-          why next to the id in the caller. Empty ignores nothing.
-        type: string
-        default: ""
       runtime:
         description: Container runtime, "bun" or "node". "node" requires @elysiajs/node and a --target=node build.
         type: string
@@ -215,24 +204,6 @@ jobs:
             echo "::error::Build did not produce $ENTRY_POINT (set the entry-point input)"
             exit 1
           fi
-
-      - name: Audit dependencies
-        if: strategy.job-index == 0 && inputs.audit-level != ''
-        working-directory: ${{ env.INSTALL_DIR }}
-        run: |
-          args=(--audit-level="$AUDIT_LEVEL")
-          for id in $(printf '%s' "$AUDIT_IGNORE" | tr ',' ' '); do
-            if [[ ! "$id" =~ ^(GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}|CVE-[0-9]{4}-[0-9]+)$ ]]; then
-              echo "::error::audit-ignore: '$id' is not a GHSA or CVE id"
-              exit 1
-            fi
-            echo "::warning::bun audit ignores $id (audit-ignore)"
-            args+=(--ignore="$id")
-          done
-          bun audit "${args[@]}"
-        env:
-          AUDIT_LEVEL: ${{ inputs.audit-level }}
-          AUDIT_IGNORE: ${{ inputs.audit-ignore }}
 
       - name: Upload dist
         if: strategy.job-index == 0

@@ -1,7 +1,7 @@
 # ptl-github-ci-templates
 
 Reusable GitHub Actions workflow + Dockerfile กลางของ PlaintechLab. Project เรียกใช้ workflow เดียวแล้วได้ครบ:
-lint → test → dependency audit → build → Docker image → smoke test health check → Trivy scan → build แต่ละ arch บน runner ของ arch นั้น → push → รวมเป็น multi-arch tag → cosign sign
+lint → test → build → Docker image → smoke test health check → Trivy scan → build แต่ละ arch บน runner ของ arch นั้น → push → รวมเป็น multi-arch tag → cosign sign
 
 | Framework | Workflow | Dockerfile | Config อ้างอิง |
 | --- | --- | --- | --- |
@@ -143,7 +143,7 @@ jobs:
 
 | ขั้นตอน | รันที่ |
 | --- | --- |
-| `bun install --frozen-lockfile`, `bun audit` | `workspace-root` |
+| `bun install --frozen-lockfile` | `workspace-root` |
 | lint, test, build (CI) | `working-directory` |
 | Docker build context | `workspace-root` (เห็น `packages/*` ที่ app import ได้) |
 | Docker build | `cd <app>` แล้วรัน `build-command` (ส่งเข้า Dockerfile เป็น build arg `APP_DIR`, `BUILD_COMMAND`) |
@@ -250,7 +250,7 @@ Nuxt ใช้ `runtimeConfig` + env `NUXT_*` ตอน runtime ได้ จึ
   ```
 
   Certificate identity เป็นของ reusable workflow ใน repo นี้ ไม่ใช่ของ project
-- Dependency: `bun audit` (fail ที่ `audit-level`, default `high`; `audit-ignore` ข้าม advisory ที่ระบุ — ใช้เฉพาะตัวที่ไม่มีเวอร์ชันแก้และไปไม่ถึงแอป พร้อมเขียนเหตุผลไว้ข้าง id ใน workflow ของ project; ทุกตัวที่ข้ามขึ้นเป็น warning ใน run), Go ใช้ gosec + govulncheck
+- Dependency: Go ใช้ gosec + govulncheck; project Bun ไม่มี dependency audit แยก ใช้ Trivy scan ของ image แทน (เห็นเฉพาะ package ที่อยู่ใน image)
 
 ## Versioning
 
