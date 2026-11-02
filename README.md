@@ -48,7 +48,7 @@ on:
 
 jobs:
   build:
-    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-elysia.yml@v1
+    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-elysia.yml@v2
     permissions:
       contents: read
       packages: write          # push ghcr.io
@@ -63,7 +63,7 @@ jobs:
 ```yaml
 jobs:
   build:
-    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-nextjs.yml@v1
+    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-nextjs.yml@v2
     permissions: { contents: read, packages: write, id-token: write, security-events: write }
     with:
       image-name: ghcr.io/plaintechlab/the-fulfillment-portal
@@ -78,7 +78,7 @@ jobs:
 ```yaml
 jobs:
   build:
-    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-nuxt4.yml@v1
+    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-nuxt4.yml@v2
     permissions: { contents: read, packages: write, id-token: write, security-events: write }
     with:
       image-name: ghcr.io/plaintechlab/the-fulfillment-admin
@@ -93,7 +93,7 @@ image เดียวจะใช้ได้ทุก environment. `build-env` 
 ```yaml
 jobs:
   build:
-    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-go.yml@v1
+    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-go.yml@v2
     permissions: { contents: read, packages: write, id-token: write, security-events: write }
     with:
       image-name: ghcr.io/plaintechlab/the-fulfillment-warehouse
@@ -110,7 +110,7 @@ jobs:
 ```yaml
 jobs:
   api:
-    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-elysia.yml@v1
+    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-elysia.yml@v2
     permissions: { contents: read, packages: write, id-token: write, security-events: write }
     with:
       working-directory: apps/api
@@ -124,7 +124,7 @@ jobs:
 ```yaml
 jobs:
   api:
-    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-elysia.yml@v1
+    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-elysia.yml@v2
     permissions: { contents: read, packages: write, id-token: write, security-events: write }
     with:
       workspace-root: .              # directory ที่มี root package.json + bun.lock
@@ -132,7 +132,7 @@ jobs:
       image-name: ghcr.io/plaintechlab/the-fulfillment-api
       artifact-name: api-dist
   admin:
-    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-nuxt4.yml@v1
+    uses: PlaintechLab/ptl-github-ci-templates/.github/workflows/build-nuxt4.yml@v2
     permissions: { contents: read, packages: write, id-token: write, security-events: write }
     with:
       workspace-root: .
@@ -254,7 +254,7 @@ Nuxt ใช้ `runtimeConfig` + env `NUXT_*` ตอน runtime ได้ จึ
 
 ## Versioning
 
-- Project pin major: `@v1`. Release ใหม่: `git tag v1.2.0 && git push origin v1.2.0` แล้ว [release.yml](.github/workflows/release.yml) ย้าย `v1` มาชี้ให้
+- Project pin major: `@v2`. Release ใหม่: `git tag v2.1.0 && git push origin v2.1.0` แล้ว [release.yml](.github/workflows/release.yml) ย้าย `v2` มาชี้ให้
 - Breaking change (ลบ/เปลี่ยนชื่อ input, เปลี่ยน default ที่ทำให้ build เดิม fail, เปลี่ยน path ใน image) ต้องขึ้น major ใหม่
 - Update action ที่ pin ไว้: เปลี่ยน SHA + comment version ทุกที่ที่ใช้ (`grep -rn "actions/checkout@" .github`)
 
