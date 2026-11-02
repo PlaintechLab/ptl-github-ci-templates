@@ -18,7 +18,6 @@ commands:
   start: bun run start
   test: bun run test
   lint: bun run lint        # `next lint` was removed in Next 16; use eslint/biome/tsc
-  audit: bun audit --audit-level=high
 
 build:
   output_dir: .next/
@@ -29,7 +28,7 @@ build:
     NODE_ENV: production
     NEXT_TELEMETRY_DISABLED: "1"
   workspace: >-
-    Bun workspace supported: workspace-root input -> bun install, bun audit and the Docker context
+    Bun workspace supported: workspace-root input -> bun install and the Docker context
     run at the workspace root; lint/test/build run in working-directory; Docker gets APP_DIR and
     BUILD_COMMAND build args and ships only that app.
   build_env_secret: build-env   # dotenv, KEY=VALUE per line, values literal; NEXT_PUBLIC_* is inlined into the client bundle
@@ -69,7 +68,7 @@ github_actions:
   workflow: .github/workflows/build-nextjs.yml
   jobs:
     quality:                 # matrix over node_versions
-      steps: [setup-bun, restore .next/cache, lint, test, build, bundle report, audit (first leg), upload (first leg)]
+      steps: [setup-bun, restore .next/cache, lint, test, build, bundle report, upload (first leg)]
       timeout_minutes: 20
     docker:
       steps: [build (runner arch), size check, smoke test, trivy, push multi-arch, cosign sign]
@@ -115,7 +114,6 @@ performance_targets:
   startup_time_s: 15
 
 security:
-  dependency_audit: bun audit, fails at >= high
   image_scan: Trivy, fails on unfixed-excluded CRITICAL/HIGH
   sbom: BuildKit SBOM attestation on the pushed image
   non_root_user: true

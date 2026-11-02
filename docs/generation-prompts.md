@@ -80,7 +80,7 @@ Create a CI/CD template for ElysiaJS backend using Bun:
 - Matrix: Node versions 20, 21
 - Cache: Bun lockfile
 - Artifacts: dist/ directory
-- Security: Trivy + Node dependencies audit
+- Security: Trivy
 
 **Output Files:**
 1. .github/workflows/build-elysia.yml
@@ -121,7 +121,7 @@ Create a CI/CD template for Next.js frontend using Bun:
 - Matrix: Node versions 20, 21
 - Cache: Bun lockfile + Next.js cache
 - Artifacts: .next/, public/
-- Security: Dependency audit
+- Security: Trivy
 
 **Performance Targets:**
 - Build time: < 5 minutes

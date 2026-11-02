@@ -53,6 +53,10 @@ on:
         description: Run govulncheck against the module.
         type: boolean
         default: true
+      govulncheck-version:
+        description: govulncheck version. It must build with the Go version in go.mod; v1.8.0 and later need Go 1.26.
+        type: string
+        default: v1.7.0
       runtime:
         description: Container runtime, "alpine" or "distroless".
         type: string
@@ -251,7 +255,9 @@ jobs:
 
       - name: govulncheck
         if: inputs.govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        env:
+          GOVULNCHECK_VERSION: ${{ inputs.govulncheck-version }}
+        run: go run "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION" ./...
 
   docker:
     name: Docker image
